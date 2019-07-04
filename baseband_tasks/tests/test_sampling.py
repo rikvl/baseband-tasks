@@ -8,7 +8,8 @@ from numpy.testing import assert_allclose
 import astropy.units as u
 from astropy.time import Time
 
-from ..sampling import Resample, seek_float, TimeDelay, DelayAndResample
+from ..sampling import (seek_float, ShiftAndResample, Resample,
+                        TimeDelay, DelayAndResample)
 from ..base import Task, SetAttribute
 from ..channelize import Channelize
 from ..combining import Stack
@@ -132,14 +133,35 @@ class TestResampleReal:
         expected = self.full_fh.read()[int(fraction*4):-(4-int(fraction*4)):4]
         assert_allclose(data, expected, atol=self.atol, rtol=0)
 
-    @pytest.mark.parametrize('offset',
-                             ([0., 0.25], [1.75, 10.5],
-                              [10., 12.5]*u.ms,
-                              Time(['2010-11-12T13:14:15.013',
-                                    '2010-11-12T13:14:15.0135'])))
-    def test_resample_different_offset(self, offset):
-        # ih = Resample(self.part_fh, offset, samples_per_frame=512)
-        pass
+    @pytest.mark.parametrize('shift',
+                             (0., 0.25, -5.25, [1.75, 10.5],
+                              [-2., 13]*u.ms))
+    def test_shift_and_resample(self, shift):
+        # Offsets equal to quarter samples to allow check with full_fh.
+        ih = ShiftAndResample(self.part_fh, shift, offset=0,
+                              samples_per_frame=512)
+        # start_time should be on old grid
+        ioff = ((ih.start_time - self.start_time) * ih.sample_rate).to_value(u.one)
+        assert abs(ioff - round(ioff)) < u.ns * ih.sample_rate
+        try:
+            iter(shift)
+        except TypeError:
+            shift = [shift, shift]
+        for i, s in enumerate(shift):
+            time_shift = seek_float(self.part_fh, s) / ih.sample_rate
+            ih.seek(0)
+            fh_pos = self.full_fh.seek(ih.time - time_shift)
+            if fh_pos < 0:
+                extra = -(fh_pos // 4)
+                self.full_fh.seek(extra * 4, 1)
+                ih.seek(extra)
+
+            assert abs(ih.time - time_shift - self.full_fh.time) < 1.*u.ns
+            data = ih.read()
+            expected = self.full_fh.read()[::4]
+            min_len = min(len(data), len(expected))
+            assert_allclose(data[:min_len, i], expected[:min_len, i],
+                            atol=self.atol, rtol=0)
 
 
 class TestResampleComplex(TestResampleReal):
