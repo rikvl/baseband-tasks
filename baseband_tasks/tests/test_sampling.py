@@ -73,6 +73,8 @@ class TestFloatOffset:
 class TestResampleReal:
 
     dtype = np.dtype('f4')
+    # Note: the tolerance is reasonable only for signals that fit exactly
+    # in input samples.
     atol = 1e-4
     sample_rate = 1 * u.kHz
     samples_per_frame = 2048
@@ -106,13 +108,14 @@ class TestResampleReal:
         assert np.all(part == full[::4])
 
     @pytest.mark.parametrize('offset',
-                             (0., 0.5, 1., 1.75, 10.25,
-                              10.*u.ms, 0.015*u.s,
-                              Time('2010-11-12T13:14:15.013')))
+                             (34, 34.5, 35.75,
+                              50.*u.ms, 0.065*u.s,
+                              Time('2010-11-12T13:14:15.073')))
     def test_resample(self, offset):
-        ih = Resample(self.part_fh, offset, samples_per_frame=512)
-        # Always lose 1 sample per frame.
-        assert ih.shape[0] == self.part_fh.shape[0] - self.n_frames
+        pad = 32
+        ih = Resample(self.part_fh, offset, pad=pad)
+        # Always lose 1 sample + 2 * pad per frame.
+        assert ih.shape[0] == self.part_fh.shape[0] - (1+pad*2) * self.n_frames
         assert ih.sample_shape == self.part_fh.sample_shape
         # Check we are at the given offset.
         if isinstance(offset, Time):
@@ -125,14 +128,16 @@ class TestResampleReal:
         assert abs(ih.time - expected_time) < 1. * u.ns
 
         ioffset, fraction = divmod(seek_float(self.part_fh, offset), 1)
-        assert ih.offset == ioffset
+        assert ih.offset + pad == ioffset
         expected_start_time = (self.part_fh.start_time
-                               + fraction / self.part_fh.sample_rate)
+                               + (pad + fraction) / self.part_fh.sample_rate)
         assert abs(ih.start_time - expected_start_time) < 1. * u.ns
         ih.seek(0)
         data = ih.read()
-        if4 = int(fraction * 4)
-        expected = self.full_fh.read()[if4:-self.n_frames*4+if4:4]
+        self.full_fh.seek(ih.start_time)
+        # Should be exact.
+        assert np.abs(self.full_fh.time - ih.start_time) < 1. * u.ns
+        expected = self.full_fh.read(data.shape[0]*4)[::4]
         assert_allclose(data, expected, atol=self.atol, rtol=0)
 
     @pytest.mark.parametrize('shift',
@@ -200,7 +205,6 @@ class TestResampleNoise(TestResampleComplex):
         self.part_data = (np.random.normal(size=n*2*2).view('c16')
                           .reshape(-1, 2))
         part_ft = np.fft.fft(self.part_data, axis=0)
-        # TODO: need better padding???
         part_ft[1::3] = 0
         part_ft[2::3] = 0
         # Make corresponding FT for full frame.
@@ -346,7 +350,7 @@ class BaseDelayAndResampleTestsReal:
             # local oscillator frequency.
             tel2_rs = DelayAndResample(tel2, delay / self.full_sample_rate,
                                        tel1.start_time, lo=self.lo,
-                                       samples_per_frame=32)
+                                       samples_per_frame=32, pad=6)
             self.assert_tel_same(tel1, tel2_rs, atol=self.atol_channelized)
 
 
@@ -383,7 +387,7 @@ class BaseDelayAndResampleTestsComplex(BaseDelayAndResampleTestsReal):
             self.assert_tel_same(tel1, aligned)
         else:
             aligned = Resample(time_delay, tel1.start_time,
-                               samples_per_frame=32)
+                               samples_per_frame=32, pad=6)
             self.assert_tel_same(tel1, aligned, atol=self.atol_channelized)
 
 
