@@ -83,8 +83,10 @@ class ShiftAndResample(PaddedTaskBase):
     offset : float, `~astropy.units.Quantity`, or `~astropy.time.Time`
         Offset to ensure the output stream includes.  Can an absolute time,
         or a (float) number of samples or time offset relative to the start
-        of the underlying stream.  The default of ``0`` implies that the
-        output stream will be on the same grid as the input one.
+        of the underlying stream.  The default of `None` implies that the
+        output stream is free to adjust.  Hence, if a single shift is
+        given, all that will happen is a change in ``start_time``. To
+        ensure the grid stays fixed, pass in ``0``.
     whence : {0, 1, 2, 'start', 'current', or 'end'}, optional
         Like regular seek, the offset is taken to be from the start if
         ``whence=0`` (default), from the current position if 1,
@@ -108,29 +110,47 @@ class ShiftAndResample(PaddedTaskBase):
     """
     def __init__(self, ih, shift, offset=None, whence='start', *,
                  samples_per_frame=None, **kwargs):
-        if samples_per_frame is None:
-            samples_per_frame = max(ih.samples_per_frame, 1024)
-
         ih_shift = float_offset(ih, shift)
-        ih_offset = seek_float(ih, offset, whence)
-        offset_fraction = ih_offset - np.around(ih_offset)
-        sample_shift = ih_shift - offset_fraction
-        rounded_mean_shift = np.mean(sample_shift).round()
-        sample_shift -= rounded_mean_shift
-        pad_start = int(np.ceil(np.max(sample_shift)))
-        pad_end = int(np.floor(-np.min(sample_shift))) + 1
+        ih_shift_mean = np.mean(ih_shift)
+
+        if offset is None:
+            # Just use the average shift as a time shift, and do
+            # the individual shifts relative to it.
+            d_time = ih_shift_mean
+        else:
+            # Ensure the time shift lands on the grid given by offset,
+            # but remove as many integer cycles as possible, such that
+            # individual shifts are as symmetric around 0 as possible.
+            ih_offset = seek_float(ih, offset, whence)
+            d_time = ih_offset + np.around(ih_shift_mean - ih_offset)
+
+        # The remainder we actually need to shift.
+        sample_shift = ih_shift - d_time
+        # Special case where no work is to be done: no shifts left
+        # and no offset given (so no regridding requested).
+        do_shift = offset is not None or np.any(sample_shift != 0)
+        if do_shift:
+            pad_start = int(np.ceil(np.max(sample_shift)))
+            pad_end = int(np.floor(-np.min(sample_shift))) + 1
+            if samples_per_frame is None:
+                samples_per_frame = max(ih.samples_per_frame, 1024)
+        else:
+            pad_start = pad_end = 0
+
         super().__init__(ih, pad_start=pad_start, pad_end=pad_end,
                          samples_per_frame=samples_per_frame, **kwargs)
 
-        self._fft = fft_maker(shape=(self._padded_samples_per_frame,)
-                              + ih.sample_shape, sample_rate=ih.sample_rate,
-                              dtype=ih.dtype)
-        self._ifft = self._fft.inverse()
-
-        self._sample_shift = sample_shift
-        self._start_time += (offset_fraction + rounded_mean_shift) / ih.sample_rate
-        self._pad_slice = slice(self._pad_start,
-                                self._padded_samples_per_frame - self._pad_end)
+        self._start_time += d_time / ih.sample_rate
+        if do_shift:
+            self._fft = fft_maker(
+                shape=(self._padded_samples_per_frame,) + ih.sample_shape,
+                sample_rate=ih.sample_rate, dtype=ih.dtype)
+            self._ifft = self._fft.inverse()
+            self._pad_slice = slice(pad_start,
+                                    self._padded_samples_per_frame - pad_end)
+            self._sample_shift = sample_shift
+        else:
+            self._sample_shift = None
 
     @lazyproperty
     def phase_factor(self):
@@ -143,6 +163,9 @@ class ShiftAndResample(PaddedTaskBase):
         return phase_factor
 
     def task(self, data):
+        if self._sample_shift is None:
+            return data
+
         ft = self._fft(data)
         ft *= self.phase_factor
         result = self._ifft(ft)
