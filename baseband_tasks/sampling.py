@@ -248,7 +248,7 @@ class Resample(ShiftAndResample):
       >>> rh.time.isot
       '2014-06-16T05:56:07.000123456'
       >>> rh.seek(-4, 1)
-      3946
+      3914
       >>> data = rh.read(8)
       >>> data[4]  # doctest: +SKIP
       array([-1.6905369 ,  0.52486056, -2.00316   ,  0.9242443 , -0.0470082 ,
