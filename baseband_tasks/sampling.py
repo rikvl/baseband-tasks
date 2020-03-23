@@ -6,12 +6,14 @@ from astropy import units as u
 from astropy.utils import lazyproperty
 from astropy.time import Time
 
-from .base import PaddedTaskBase, TaskBase, SetAttribute, check_broadcast_to
+from .base import PaddedTaskBase, TaskBase, check_broadcast_to
 from .fourier import fft_maker
 
 __all__ = ['float_offset', 'seek_float',
            'ShiftAndResample', 'Resample', 'TimeDelay', 'DelayAndResample']
 
+# The tests do not strictly require pyfftw to run, but they do require it
+# to give numbers that are equal to within +FLOAT_CMP precision.
 __doctest_requires__ = {'Resample*': ['pyfftw']}
 
 
@@ -104,7 +106,7 @@ class ShiftAndResample(PaddedTaskBase):
         edges), to avoid the influence of further-away wrapped samples
         (recall that resampling requires interpolation, which is done by
         shifting phases in the fourier domain, corresponding to convolution
-        with a sync function in the time domain).  The default of 30 ensures
+        with a sync function in the time domain).  The default of 32 ensures
         any points from the other side of a frame have weights of less than
         1/32π ~ 0.01.
     samples_per_frame : int, optional
@@ -223,7 +225,7 @@ class Resample(ShiftAndResample):
         edges), to avoid the influence of further-away wrapped samples
         (recall that resampling requires interpolation, which is done by
         shifting phases in the fourier domain, corresponding to convolution
-        with a sync function in the time domain).  The default of 30 ensures
+        with a sync function in the time domain).  The default of 32 ensures
         any points from the other side of a frame have weights of less than
         1/32π ~ 0.01.
     samples_per_frame : int, optional
@@ -380,7 +382,7 @@ class DelayAndResample(ShiftAndResample):
         edges), to avoid the influence of further-away wrapped samples
         (recall that resampling requires interpolation, which is done by
         shifting phases in the fourier domain, corresponding to convolution
-        with a sync function in the time domain).  The default of 30 ensures
+        with a sync function in the time domain).  The default of 32 ensures
         any points from the other side of a frame have weights of less than
         1/32π ~ 0.01.
     samples_per_frame : int, optional

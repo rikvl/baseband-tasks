@@ -31,8 +31,8 @@ class PureTone:
         return cosine.astype(dtype, copy=False)
 
     def __call__(self, ih, dtype=None):
-        dt = ((ih.time - self.start_time).to(u.s) +
-              np.arange(ih.samples_per_frame) / ih.sample_rate)
+        dt = ((ih.time - self.start_time).to(u.s)
+              + np.arange(ih.samples_per_frame) / ih.sample_rate)
         dt = dt.reshape((-1,) + (1,) * len(ih.sample_shape))
         phi = self.phi0 + self.frequency * dt * u.cycle
         return self.pure_tone(phi.to_value(u.rad), dtype or ih.dtype)
@@ -40,7 +40,8 @@ class PureTone:
 
 class TestFloatOffset:
     def setup(self):
-        self.ih = EmptyStreamGenerator(shape=(2048, 3, 2), sample_rate=1.*u.kHz,
+        self.ih = EmptyStreamGenerator(shape=(2048, 3, 2),
+                                       sample_rate=1.*u.kHz,
                                        start_time=Time('2010-11-12T13:14:15'))
 
     @pytest.mark.parametrize('offset',
@@ -115,8 +116,8 @@ class TestResampleReal:
     def test_resample(self, offset):
         ih = Resample(self.part_fh, offset, pad=self.pad)
         # Always lose 1 sample + 2 * pad per frame.
-        assert (ih.shape[0] ==
-                self.part_fh.shape[0] - (1+self.pad*2) * self.n_frames)
+        assert ih.shape[0] == (self.part_fh.shape[0]
+                               - (1+self.pad*2) * self.n_frames)
         assert ih.sample_shape == self.part_fh.sample_shape
         # Check we are at the given offset.
         if isinstance(offset, Time):
@@ -155,8 +156,8 @@ class TestResampleReal:
         expected_offset = seek_float(self.part_fh,
                                      offset if offset is not None else
                                      np.mean(shift))
-        d_off = ((ih.start_time - self.start_time) * ih.sample_rate -
-                 expected_offset).to_value(u.one)
+        d_off = ((ih.start_time - self.start_time) * ih.sample_rate
+                 - expected_offset).to_value(u.one)
         assert abs(d_off - np.around(d_off)) < u.ns * ih.sample_rate
 
         # Data should be shifted by the expected amounts.
@@ -174,7 +175,8 @@ class TestResampleReal:
             data = ih.read()
             expected = self.full_fh.read()[::4]
             min_len = min(len(data), len(expected))
-            assert min_len >= (self.n_frames-0.5)*self.part_fh.samples_per_frame
+            assert min_len >= ((self.n_frames - 0.5)
+                               * self.part_fh.samples_per_frame)
             sel = i if shift.size > 1 else slice(None)
             assert_allclose(data[:min_len, sel], expected[:min_len, sel],
                             atol=self.atol, rtol=0)
@@ -204,7 +206,8 @@ class TestResampleNoise(TestResampleComplex):
     def setup(self):
         # Make noise with only frequencies covered by part.
         n = self.samples_per_frame // 4 * self.n_frames
-        self.part_data = np.random.normal(size=n*2*2).view('c16').reshape(-1, 2)
+        self.part_data = (np.random.normal(size=n*2*2).view('c16')
+                          .reshape(-1, 2))
         part_ft = np.fft.fft(self.part_data, axis=0)
         # Set high frequencies to zero; resampling doesn't work well with
         # noise there, as the FT mixes it from positive to negative and
@@ -259,8 +262,8 @@ class BaseDelayAndResampleTestsReal:
     phi0_mixer = -12.3456789 * u.degree
 
     def setup(self):
-        self.full_shape = (self.samples_per_frame *
-                           self.n_frames,) + self.sideband.shape
+        self.full_shape = (self.samples_per_frame
+                           * self.n_frames,) + self.sideband.shape
         self.downsample = (16 if self.dtype.kind == 'c' else 8)
         self.sample_rate = self.full_sample_rate / self.downsample
         # Create the IF (which can produce a complex tone for quadrature).
@@ -410,7 +413,8 @@ class TestDelayAndResampleToneReal(BaseDelayAndResampleTestsReal):
         if self.lo != 0:
             self.lo = self.lo - self.sideband / 128 * self.full_sample_rate
         self.phi0_signal = 98.7654321 * u.degree
-        self.signal = PureTone(self.f_signal, self.start_time, self.phi0_signal)
+        self.signal = PureTone(self.f_signal, self.start_time,
+                               self.phi0_signal)
         super().setup()
 
     @pytest.mark.parametrize('n', (None, 32))
@@ -420,7 +424,8 @@ class TestDelayAndResampleToneReal(BaseDelayAndResampleTestsReal):
         data = tel.read()
         # Calculate expected phase using time at telescope, relative
         # to start of the simulated signal.
-        i = np.arange(data.shape[0]).reshape((-1,)+(1,)*len(self.raw.sample_shape))
+        i = np.arange(data.shape[0]).reshape(
+            (-1,) + (1,)*len(self.raw.sample_shape))
         dt = i / tel.sample_rate
         # Phase of the signal is that of the sine wave.
         phi = self.phi0_signal + dt * self.f_signal * u.cycle
